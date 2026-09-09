@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RPM Suite Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    const COLORS = {
+      bg: "#F3F6F1",
+      panel: "#FFFFFF",
+      ink: "#24312C",
+      muted: "#7C8B80",
+      teal: "#1B4B43",
+      normal: "#3F8F6F",
+      watch: "#E2A33D",
+      alert: "#D64545",
+      hairline: "#E1E6DD",
+    };
+
+    const VITAL_INFO = {
+      hr: {
+        title: "Heart Rate (Resting)",
+        normalRange: "60 – 100 bpm",
+        statusText: "Normal baseline rhythm",
+        actions: [
+          "Practice deep rhythmic breathing (4-7-8 method).",
+          "Hydrate with a glass of water.",
+          "Sit down and rest in a cool, quiet room for 15 minutes."
+        ],
+        aiTip: "Lifeline AI checks resting trends hourly and correlates sudden spikes with motion data."
+      },
+      spo2: {
+        title: "Blood Oxygen Saturation (SpO₂)",
+        normalRange: "95% – 100%",
+        statusText: "Optimal tissue oxygenation",
+        actions: [
+          "Sit upright to expand lung volume and avoid slouching.",
+          "Perform slow, diaphragmatic breathing.",
+          "Ensure fresh airflow or open a window."
+        ],
+        aiTip: "If levels drop below 92%, Lifeline AI initiates an immediate voice triage sequence."
+      },
+      bp: {
+        title: "Blood Pressure (Systolic / Diastolic)",
+        normalRange: "90/60 – 120/80 mmHg",
+        statusText: "Optimal arterial pressure",
+        actions: [
+          "Limit sodium intake and stay hydrated.",
+          "Avoid caffeine or sudden physical exertion.",
+          "Verify scheduled antihypertensive medication adherence."
+        ],
+        aiTip: "Hourly micro-trends allow Lifeline AI to differentiate exertion spikes from missed dosages."
+      },
+      temp: {
+        title: "Peripheral Skin Temperature",
+        normalRange: "97.0°F – 99.0°F",
+        statusText: "Normal thermoregulation",
+        actions: [
+          "Drink cool fluids or oral rehydration solutions.",
+          "Rest in a well-ventilated room with light clothing.",
+          "Apply a cool damp cloth to forehead if feeling warm."
+        ],
+        aiTip: "Detects early signs of inflammation or infection before clinical fever onset."
+      },
+      sleep: {
+        title: "Sleep Duration & Recovery",
+        normalRange: "7.0 – 9.0 hrs / night",
+        statusText: "Restorative sleep target",
+        actions: [
+          "Maintain a consistent sleep-wake schedule.",
+          "Avoid screens and heavy meals 1 hour before bedtime.",
+          "Keep bedroom temperature cool and dark."
+        ],
+        aiTip: "Lifeline AI provides an evening audio recap suggesting wind-down routines for optimal cardiac recovery."
+      }
+    };
+
+    function useGoogleFonts() {
+      useEffect(() => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href =
+          "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap";
+        document.head.appendChild(link);
+        return () => document.head.removeChild(link);
+      }, []);
+    }
+
+    function Sparkline({ data, color, width = 90, height = 28 }) {
+      const min = Math.min(...data);
+      const max = Math.max(...data);
+      const range = max - min || 1;
+      const points = data
+        .map((v, i) => {
+          const x = (i / (data.length - 1)) * width;
+          const y = height - ((v - min) / range) * (height - 4) - 2;
+          return `${x},${y}`;
+        })
+        .join(" ");
+      return (
+        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+          <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    }
+
+    function HeartbeatLine({ color, animate }) {
+      return (
+        <svg width="100%" height="28" viewBox="0 0 400 28" preserveAspectRatio="none" style={{ opacity: 0.5 }}>
+          <polyline
+            points="0,14 60,14 75,14 85,2 95,26 105,14 120,14 160,14 175,14 185,4 195,24 205,14 220,14 400,14"
+            fill="none"
+            stroke={color}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={
+              animate
+                ? { strokeDasharray: 500, strokeDashoffset: 500, animation: "dash 2.4s linear infinite" }
+                : {}
+            }
+          />
+          <style>{`@keyframes dash { to { stroke-dashoffset: 0; } }`}</style>
+        </svg>
+      );
+    }
+
+    function CountdownRing({ total, remaining, color, size = 64 }) {
+      const r = (size - 8) / 2;
+      const c = 2 * Math.PI * r;
+      const frac = Math.max(0, remaining / total);
+      return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={COLORS.hairline} strokeWidth="5" />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth="5"
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={c * (1 - frac)}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            style={{ transition: "stroke-dashoffset 1s linear" }}
+          />
+          <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fill: color, fontWeight: 600 }}>
+            {remaining}
+          </text>
+        </svg>
+      );
+    }
+
+    function StatusPill({ status }) {
+      const map = {
+        normal: { label: "All normal", color: COLORS.normal },
+        checking: { label: "AI checking in", color: COLORS.watch },
+        alert: { label: "Emergency alert active", color: COLORS.alert },
+        resolved: { label: "Resolved", color: COLORS.normal },
+      };
+      const s = map[status];
+      return (
+        <span
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+          style={{ background: `${s.color}18`, color: s.color, fontFamily: "'Inter', sans-serif" }}
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: s.color, animation: status === "checking" || status === "alert" ? "pulse 1.2s infinite" : "none" }}
+          />
+          {s.label}
+          <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+        </span>
+      );
+    }
+
+    function VitalCard({ id, label, value, unit, data, color, note, isSelected, onSelect }) {
+      return (
+        <div 
+          onClick={() => onSelect(id)}
+          className={`rounded-xl p-3.5 cursor-pointer transition-all duration-150 relative ${isSelected ? 'ring-2 ring-[#1B4B43] shadow-md' : 'hover:border-[#1B4B43]/40'}`}
+          style={{ background: COLORS.panel, border: `1px solid ${isSelected ? COLORS.teal : COLORS.hairline}` }}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[10px] uppercase tracking-wide font-semibold" style={{ color: COLORS.muted, fontFamily: "'Inter', sans-serif" }}>
+              {label}
+            </p>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#F3F6F1] text-[#1B4B43] font-medium">Info</span>
+          </div>
+          <div className="flex items-end justify-between">
+            <div>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, color: COLORS.ink }}>
+                {value}
+              </span>
+              <span className="text-xs ml-1" style={{ color: COLORS.muted }}>
+                {unit}
+              </span>
+            </div>
+            <Sparkline data={data} color={color} />
+          </div>
+          {note ? (
+            <p className="text-[10px] mt-1 font-medium" style={{ color }}>
+              {note}
+            </p>
+          ) : (
+            <p className="text-[10px] mt-1 text-[#7C8B80]">Click for range & guidance</p>
+          )}
+        </div>
+      );
+    }
+
+    function jitter(v, amt, min, max) {
+      const res = v + (Math.random() - 0.5) * amt;
+      return Math.min(max, Math.max(min, Math.round(res * 10) / 10));
+    }
+
+    function speakAI(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); 
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.rate = 0.95;
+        msg.pitch = 1;
+        window.speechSynthesis.speak(msg);
+      }
+    }
+
+    const CONTACTS = [
+      { name: "Ayesha (Daughter)", role: "Primary contact" },
+      { name: "Dr. S. Reddy", role: "Cardiologist (Attending)" },
+      { name: "Rapid Response Ambulance", role: "Nearest emergency unit — 2.1 km" },
+    ];
+
+    function App() {
+      useGoogleFonts();
+
+      const [status, setStatus] = useState("normal");
+      const [hr, setHr] = useState(76);
+      const [spo2, setSpo2] = useState(97);
+      const [bp, setBp] = useState({ sys: 120, dia: 80 });
+      const [sleep] = useState(7.2);
+      const [temp, setTemp] = useState(98.2);
+
+      const [selectedVital, setSelectedVital] = useState("bp");
+
+      const [hrHist, setHrHist] = useState(Array.from({ length: 12 }, () => 76));
+      const [spo2Hist, setSpo2Hist] = useState(Array.from({ length: 12 }, () => 97));
+      const [tempHist, setTempHist] = useState(Array.from({ length: 12 }, () => 98.2));
+
+      const [checkin, setCheckin] = useState(null); 
+      const [log, setLog] = useState([{ time: nowStr(), type: "info", text: "Monitoring started — all vitals nominal." }]);
+      const [contacts, setContacts] = useState(CONTACTS.map((c) => ({ ...c, notified: false })));
+
+      const tickRef = useRef(null);
+      const countdownRef = useRef(null);
+      const followUpTimeoutRef = useRef(null);
+
+      function nowStr() {
+        return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function pushLog(type, text) {
+        setLog((prev) => [{ time: nowStr(), type, text }, ...prev].slice(0, 8));
+      }
+
+      useEffect(() => {
+        tickRef.current = setInterval(() => {
+          if (status === "normal") {
+            setHr((v) => {
+              const nv = jitter(v, 2.5, 72, 82);
+              setHrHist((h) => [...h.slice(1), nv]);
+              return nv;
+            });
+            setSpo2((v) => {
+              const nv = Math.round(jitter(v, 0.4, 96, 99));
+              setSpo2Hist((h) => [...h.slice(1), nv]);
+              return nv;
+            });
+            setBp((v) => ({ 
+              sys: Math.round(jitter(v.sys, 2, 116, 124)), 
+              dia: Math.round(jitter(v.dia, 1.5, 76, 82)) 
+            }));
+            setTemp((v) => {
+              const nv = jitter(v, 0.2, 97.9, 98.6);
+              setTempHist((h) => [...h.slice(1), nv]);
+              return nv;
+            });
+          }
+        }, 2200);
+        return () => clearInterval(tickRef.current);
+      }, [status]);
+
+      useEffect(() => {
+        if (checkin && status === "checking") {
+          countdownRef.current = setInterval(() => {
+            setCheckin((c) => {
+              if (!c) return c;
+              if (c.remaining <= 1) {
+                clearInterval(countdownRef.current);
+                escalate();
+                return null;
+              }
+              return { ...c, remaining: c.remaining - 1 };
+            });
+          }, 1000);
+        }
+        return () => clearInterval(countdownRef.current);
+      }, [checkin, status]);
+
+      const escalate = useCallback(() => {
+        setStatus("alert");
+        pushLog("alert", "No response from patient — emergency contacts alerted.");
+        CONTACTS.forEach((c, i) => {
+          setTimeout(() => {
+            setContacts((prev) => prev.map((p) => (p.name === c.name ? { ...p, notified: true } : p)));
+          }, i * 500);
+        });
+      }, []);
+
+      function triggerSpo2Drop() {
+        if (status !== "normal") return;
+        clearTimeout(followUpTimeoutRef.current);
+        const dropped = 89;
+        setSpo2(dropped);
+        setSpo2Hist((h) => [...h.slice(1), dropped]);
+        setStatus("checking");
+        setSelectedVital("spo2");
+        const msg = "Fatima, your oxygen levels look a bit low right now. Can you tell me how you're feeling?";
+        setCheckin({ trigger: "spo2", text: msg, total: 30, remaining: 30 });
+        pushLog("watch", "SpO₂ dropped to 89% — AI is checking in with the patient.");
+        speakAI(msg);
+      }
+
+      function triggerHrSpike() {
+        if (status !== "normal") return;
+        clearTimeout(followUpTimeoutRef.current);
+        const spiked = 138;
+        setHr(spiked);
+        setHrHist((h) => [...h.slice(1), spiked]);
+        setStatus("checking");
+        setSelectedVital("hr");
+        const msg = "Fatima, I noticed your heart rate jumped suddenly. Are you doing any physical activities?";
+        setCheckin({ trigger: "hr", text: msg, total: 30, remaining: 30 });
+        pushLog("watch", "Heart rate spiked to 138 bpm — AI is checking in with the patient.");
+        speakAI(msg);
+      }
+
+      function triggerBpSpike() {
+        if (status !== "normal") return;
+        clearTimeout(followUpTimeoutRef.current);
+        const spikedSys = 175;
+        const spikedDia = 105;
+        setBp({ sys: spikedSys, dia: spikedDia });
+        setStatus("checking");
+        setSelectedVital("bp");
+        const msg = "Fatima, your blood pressure is high at 175 over 105. Did you take your prescribed blood pressure medication today?";
+        setCheckin({ trigger: "bp", text: msg, total: 30, remaining: 30 });
+        pushLog("watch", `Blood pressure spiked to ${spikedSys}/${spikedDia} mmHg — AI checking medication adherence.`);
+        speakAI(msg);
+      }
+
+      function triggerTempSpike() {
+        if (status !== "normal") return;
+        clearTimeout(followUpTimeoutRef.current);
+        const spikedTemp = 103.2;
+        setTemp(spikedTemp);
+        setTempHist((h) => [...h.slice(1), spikedTemp]);
+        setStatus("checking");
+        setSelectedVital("temp");
+        const msg = "Fatima, your skin temperature indicates a high fever. Are you experiencing chills or body aches?";
+        setCheckin({ trigger: "temp", text: msg, total: 30, remaining: 30 });
+        pushLog("watch", `Skin temperature rose to ${spikedTemp}°F — AI is checking in with the patient.`);
+        speakAI(msg);
+      }
+      
+      function triggerFollowUp() {
+        setStatus("checking");
+        const msg = "Hi Fatima, checking back in after your recent alert. Is everything alright now, or do you need assistance?";
+        setCheckin({ trigger: "followup", text: msg, total: 30, remaining: 30 });
+        pushLog("watch", "AI 2-minute follow-up check initiated.");
+        speakAI(msg);
+      }
+
+      function patientResponds() {
+        if (status !== "checking") return;
+        clearInterval(countdownRef.current);
+        window.speechSynthesis.cancel();
+        
+        const isFollowUp = checkin.trigger === "followup";
+        setCheckin(null);
+        setStatus("resolved");
+        pushLog("resolved", "Patient responded — no action needed. Vitals returning to baseline.");
+        
+        setTimeout(() => {
+          setHr(76);
+          setSpo2(97);
+          setBp({ sys: 120, dia: 80 });
+          setTemp(98.2);
+          setStatus("normal");
+          
+          if (!isFollowUp) {
+            pushLog("info", "Scheduled 2-minute follow-up check (simulated in 15 seconds).");
+            followUpTimeoutRef.current = setTimeout(() => {
+              triggerFollowUp();
+            }, 15000);
+          }
+        }, 1400);
+      }
+
+      function resetDemo() {
+        clearInterval(countdownRef.current);
+        clearTimeout(followUpTimeoutRef.current);
+        window.speechSynthesis.cancel();
+        setStatus("normal");
+        setCheckin(null);
+        setHr(76);
+        setSpo2(97);
+        setBp({ sys: 120, dia: 80 });
+        setTemp(98.2);
+        setHrHist(Array.from({ length: 12 }, () => 76));
+        setSpo2Hist(Array.from({ length: 12 }, () => 97));
+        setTempHist(Array.from({ length: 12 }, () => 98.2));
+        setContacts(CONTACTS.map((c) => ({ ...c, notified: false })));
+        setLog([{ time: nowStr(), type: "info", text: "Demo reset — monitoring resumed." }]);
+      }
+
+      const checkinColor = status === "alert" ? COLORS.alert : COLORS.watch;
+      const activeVitalDetail = VITAL_INFO[selectedVital];
+
+      return (
+        <div className="w-full min-h-screen" style={{ background: COLORS.bg, fontFamily: "'Inter', sans-serif", color: COLORS.ink }}>
+          <div className="max-w-5xl mx-auto px-5 py-8">
+            {/* Top Bar */}
+            <div className="rounded-2xl overflow-hidden mb-5" style={{ background: COLORS.teal }}>
+              <div className="px-6 pt-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-widest" style={{ color: "#9FC2B7" }}>
+                      Lifeline AI
+                    </p>
+                    <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, color: "white" }} className="text-2xl">
+                      RPM Suite
+                    </h1>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white text-sm font-medium">Mrs. Fatima, 72</p>
+                    <p className="text-[11px]" style={{ color: "#9FC2B7" }}>
+                      Cardiac Patient · Living alone · Ring + strap synced
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <StatusPill status={status} />
+                </div>
+              </div>
+              <HeartbeatLine color="#9FC2B7" animate={status !== "normal"} />
+            </div>
+
+            {/* Clickable Vitals Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <VitalCard 
+                id="hr"
+                label="Heart rate" 
+                value={hr} 
+                unit="bpm" 
+                data={hrHist} 
+                color={hr > 120 ? COLORS.alert : COLORS.normal} 
+                note={hr > 120 ? "Above normal range" : null}
+                isSelected={selectedVital === "hr"}
+                onSelect={setSelectedVital}
+              />
+              <VitalCard 
+                id="spo2"
+                label="SpO₂" 
+                value={spo2} 
+                unit="%" 
+                data={spo2Hist} 
+                color={spo2 < 92 ? COLORS.alert : COLORS.normal} 
+                note={spo2 < 92 ? "Below safe threshold" : null}
+                isSelected={selectedVital === "spo2"}
+                onSelect={setSelectedVital}
+              />
+              <VitalCard 
+                id="bp"
+                label="Blood pressure" 
+                value={`${Math.round(bp.sys)}/${Math.round(bp.dia)}`} 
+                unit="mmHg" 
+                data={hrHist.map((v) => v * 1.6)} 
+                color={bp.sys >= 140 || bp.dia >= 90 ? COLORS.alert : COLORS.normal} 
+                note={bp.sys >= 140 ? "Hypertensive reading" : null}
+                isSelected={selectedVital === "bp"}
+                onSelect={setSelectedVital}
+              />
+              <VitalCard 
+                id="temp"
+                label="Skin Temp" 
+                value={temp.toFixed(1)} 
+                unit="°F" 
+                data={tempHist} 
+                color={temp > 99.5 ? COLORS.alert : COLORS.normal} 
+                note={temp > 99.5 ? "Elevated reading" : null}
+                isSelected={selectedVital === "temp"}
+                onSelect={setSelectedVital}
+              />
+              <VitalCard 
+                id="sleep"
+                label="Sleep last night" 
+                value={sleep} 
+                unit="hrs" 
+                data={[6.8, 7.0, 6.9, 7.4, 7.1, 7.5, 7.2]} 
+                color={COLORS.normal}
+                isSelected={selectedVital === "sleep"}
+                onSelect={setSelectedVital}
+              />
+            </div>
+
+            {/* Interactive Vital Guidance & Clinical Ranges Panel */}
+            <div className="rounded-xl p-4 mb-5" style={{ background: COLORS.panel, border: `1px solid ${COLORS.hairline}` }}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between pb-3 border-b border-[#E1E6DD] gap-2">
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-[#1B4B43]">Clinical Reference & Patient Guidance</span>
+                  <h3 className="text-base font-bold text-[#24312C]" style={{ fontFamily: "'Fraunces', serif" }}>{activeVitalDetail.title}</h3>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase text-[#7C8B80] block">Normal Clinical Range</span>
+                    <span className="text-xs font-semibold text-[#1B4B43]" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{activeVitalDetail.normalRange}</span>
+                  </div>
+                  <span className="px-2.5 py-1 rounded text-[11px] font-semibold bg-[#3F8F6F]/15 text-[#3F8F6F]">
+                    {activeVitalDetail.statusText}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4 pt-3 text-xs">
+                <div>
+                  <p className="font-semibold text-[#24312C] mb-1.5 flex items-center gap-1.5">
+                    <span>📋</span> Immediate Actions for the Patient (Next 1 Hour):
+                  </p>
+                  <ul className="space-y-1 text-[#7C8B80] list-disc list-inside">
+                    {activeVitalDetail.actions.map((act, i) => (
+                      <li key={i}><span className="text-[#24312C]">{act}</span></li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="bg-[#F3F6F1] p-3 rounded-lg border border-[#E1E6DD] flex flex-col justify-center">
+                  <p className="font-semibold text-[#1B4B43] mb-1 flex items-center gap-1">
+                    <span>🤖</span> Lifeline AI Hourly Triage Protocol:
+                  </p>
+                  <p className="text-[11px] text-[#24312C]/80 leading-relaxed">
+                    {activeVitalDetail.aiTip}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Active Check-in Panel */}
+            {checkin && (
+              <div className="rounded-2xl p-5 mb-5" style={{ background: COLORS.panel, border: `1.5px solid ${checkinColor}` }}>
+                <div className="flex items-center gap-4">
+                  <CountdownRing total={checkin.total} remaining={checkin.remaining} color={checkinColor} />
+                  <div className="flex-1">
+                    <p className="text-[11px] uppercase tracking-wide mb-1" style={{ color: checkinColor }}>
+                      AI check-in in progress
+                    </p>
+                    <p className="text-sm font-medium" style={{ color: COLORS.ink }}>
+                      "{checkin.text}"
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: COLORS.muted }}>
+                      If there's no response before the timer ends, family and emergency contacts are notified automatically.
+                    </p>
+                  </div>
+                  <button
+                    onClick={patientResponds}
+                    className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium text-white shadow-sm"
+                    style={{ background: COLORS.normal }}
+                  >
+                    Simulate: patient responds
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Emergency Escalated Panel */}
+            {status === "alert" && (
+              <div className="rounded-2xl p-5 mb-5" style={{ background: `${COLORS.alert}12`, border: `1.5px solid ${COLORS.alert}` }}>
+                <p className="text-sm font-semibold mb-1" style={{ color: COLORS.alert }}>
+                  No response received — emergency contacts have been notified.
+                </p>
+                <p className="text-[12px]" style={{ color: COLORS.muted }}>
+                  Location and last known vitals were shared automatically with attending clinicians and family.
+                </p>
+              </div>
+            )}
+
+            {/* Contacts & Timeline */}
+            <div className="grid md:grid-cols-2 gap-4 mb-5">
+              <div className="rounded-xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.hairline}` }}>
+                <h2 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Emergency contacts
+                </h2>
+                <div className="space-y-2">
+                  {contacts.map((c) => (
+                    <div key={c.name} className="flex items-center justify-between text-sm">
+                      <div>
+                        <p style={{ color: COLORS.ink }}>{c.name}</p>
+                        <p className="text-[11px]" style={{ color: COLORS.muted }}>
+                          {c.role}
+                        </p>
+                      </div>
+                      {c.notified && (
+                        <span className="text-[11px] px-2 py-1 rounded-full" style={{ background: `${COLORS.alert}18`, color: COLORS.alert }}>
+                          Notified
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl p-4" style={{ background: COLORS.panel, border: `1px solid ${COLORS.hairline}` }}>
+                <h2 className="text-sm font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Event timeline
+                </h2>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {log.map((l, i) => (
+                    <div key={i} className="text-xs flex gap-2">
+                      <span style={{ color: COLORS.muted, fontFamily: "'IBM Plex Mono', monospace" }}>{l.time}</span>
+                      <span
+                        style={{
+                          color: l.type === "alert" ? COLORS.alert : l.type === "watch" ? COLORS.watch : l.type === "resolved" ? COLORS.normal : COLORS.ink,
+                        }}
+                      >
+                        {l.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Simulation Demo Controls */}
+            <div className="rounded-xl p-4" style={{ border: `1.5px dashed ${COLORS.hairline}` }}>
+              <p className="text-[11px] uppercase tracking-wide mb-3" style={{ color: COLORS.muted }}>
+                Demo controls — simulate a wearable reading
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={triggerSpo2Drop}
+                  disabled={status !== "normal"}
+                  className="px-3.5 py-2 rounded-lg text-xs font-medium disabled:opacity-30"
+                  style={{ background: `${COLORS.watch}18`, color: "#8A5A00" }}
+                >
+                  Simulate SpO₂ drop
+                </button>
+                <button
+                  onClick={triggerHrSpike}
+                  disabled={status !== "normal"}
+                  className="px-3.5 py-2 rounded-lg text-xs font-medium disabled:opacity-30"
+                  style={{ background: `${COLORS.watch}18`, color: "#8A5A00" }}
+                >
+                  Simulate HR spike
+                </button>
+                <button
+                  onClick={triggerBpSpike}
+                  disabled={status !== "normal"}
+                  className="px-3.5 py-2 rounded-lg text-xs font-medium disabled:opacity-30"
+                  style={{ background: `${COLORS.watch}18`, color: "#8A5A00" }}
+                >
+                  Simulate BP spike (Medication Triage)
+                </button>
+                <button
+                  onClick={triggerTempSpike}
+                  disabled={status !== "normal"}
+                  className="px-3.5 py-2 rounded-lg text-xs font-medium disabled:opacity-30"
+                  style={{ background: `${COLORS.watch}18`, color: "#8A5A00" }}
+                >
+                  Simulate Fever
+                </button>
+                <button onClick={resetDemo} className="px-3.5 py-2 rounded-lg text-xs font-medium ml-auto" style={{ background: "#EEECE4", color: COLORS.ink }}>
+                  Reset demo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
